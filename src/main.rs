@@ -74,7 +74,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let perma: Vec<_> = crafter
         .permanent_bundles()
         .iter()
-        .filter(|bundle| bundle.bundle() != "ammo" && bundle.bundle() != "evo")
+        .filter(|bundle| {
+            bundle.bundle() != "ammo"
+                && bundle.bundle() != "evo"
+                && bundle.bundle() != "health_pickup"
+                && bundle.bundle() != "shield_pickup"
+        })
         .flat_map(|bundle| bundle.items())
         .map(|item| item.item_type().asset())
         .collect();
