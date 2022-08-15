@@ -1,7 +1,7 @@
 use rayon::prelude::*;
 use std::path::PathBuf;
 
-use apex_rs::ApexClient;
+use apex_rs::{model::Bundle, ApexClient};
 use chrono::{Duration, Utc};
 use config::Config;
 use image::{
@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         x: font_height * 2.0,
         y: font_height,
     };
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let root = std::env::current_dir()?;
     let apex = ApexClient::new(&apex_token);
     let mut image = RgbaImage::new(1000, 630);
     for x in 0..image.width() {
@@ -49,41 +49,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let now = Utc::now();
     let crafter = apex.get_crafter_rotations().await?;
-    let dailies: Vec<_> = crafter
-        .daily_bundles()
-        .iter()
-        .flat_map(|bundle| bundle.items())
-        .map(|item| item.item_type().asset())
-        .collect();
-    let dailies = convert_to_images(&dailies).await?;
+    let dailies = convert_to_images(&crafter.daily_bundles(), None).await?;
     let daily_duration = crafter
         .daily_bundles()
         .first()
         .map_or(Duration::zero(), |bundle| bundle.end_as_date() - now);
-    let weekly: Vec<_> = crafter
-        .weekly_bundles()
-        .iter()
-        .flat_map(|bundle| bundle.items())
-        .map(|item| item.item_type().asset())
-        .collect();
-    let weekly = convert_to_images(&weekly).await?;
+    let weekly = convert_to_images(&crafter.weekly_bundles(), None).await?;
     let weekly_duration = crafter
         .weekly_bundles()
         .first()
         .map_or(Duration::zero(), |bundle| bundle.end_as_date() - now);
-    let perma: Vec<_> = crafter
-        .permanent_bundles()
-        .iter()
-        .filter(|bundle| {
+    let perma = convert_to_images(
+        &crafter.permanent_bundles(),
+        Some(|bundle: &Bundle| {
             bundle.bundle() != "ammo"
                 && bundle.bundle() != "evo"
                 && bundle.bundle() != "health_pickup"
                 && bundle.bundle() != "shield_pickup"
-        })
-        .flat_map(|bundle| bundle.items())
-        .map(|item| item.item_type().asset())
-        .collect();
-    let perma = convert_to_images(&perma).await?;
+        }),
+    )
+    .await?;
     let current = maps.battle_royal().map_or(None, |rot| rot.current());
     let next = maps.battle_royal().map_or(None, |rot| rot.next());
 
@@ -185,8 +170,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         overlay(&mut image, &i, x, y as i64);
         x += 130;
     }
-    let mut image_path = root.clone();
-    image_path.push(image_name);
+    let image_path = PathBuf::from(image_name);
     image.save(image_path)?;
     Ok(())
 }
@@ -206,12 +190,25 @@ fn format_duration_ddhhmm(duration: chrono::Duration) -> String {
     format!("{:02}:{:02}:{:02}", days, hours, minutes)
 }
 
-async fn convert_to_images(
-    v: &Vec<&str>,
-) -> Result<Vec<ImageBuffer<Rgba<u8>, Vec<u8>>>, Box<dyn std::error::Error + Send + Sync>> {
+async fn convert_to_images<F>(
+    v: &Vec<&Bundle>,
+    filter: Option<F>,
+) -> Result<Vec<ImageBuffer<Rgba<u8>, Vec<u8>>>, Box<dyn std::error::Error + Send + Sync>>
+where
+    F: Fn(&Bundle) -> bool,
+{
+    let mut root = std::env::current_dir()?;
+    let v: Vec<_> = v
+        .iter()
+        .filter(|item| filter.as_ref().map_or(true, |filter| filter(*item)))
+        .flat_map(|bundle| bundle.items())
+        .map(|item| item.item_type().asset_as_url())
+        .filter(|item| item.is_ok())
+        .map(|item| item.unwrap())
+        .collect();
     let mut vec = Vec::new();
     for item in v {
-        let bytes = reqwest::get(*item).await?.bytes().await?;
+        let bytes = reqwest::get(item).await?.bytes().await?;
         vec.push(image::load_from_memory(&bytes)?);
     }
     let vec: Vec<ImageBuffer<Rgba<u8>, Vec<u8>>> = vec
