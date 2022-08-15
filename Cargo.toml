@@ -1,0 +1,15 @@
+[package]
+name = "apex_banner_generator"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { version = "1.20.1", features = ["full"] }
+config = "0.13"
+apex-rs = {git = "https://github.com/nirusu99/apex-rs", branch = "main" }
+imageproc = "0.23"
+rusttype = "0.9"
+image = "0.24"
+chrono = "0.4"
