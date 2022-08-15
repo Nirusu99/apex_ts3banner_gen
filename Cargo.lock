@@ -43,7 +43,7 @@ dependencies = [
 [[package]]
 name = "apex-rs"
 version = "0.1.0"
-source = "git+https://github.com/nirusu99/apex-rs?branch=main#c4e442fb6ce592bf76ad0db008282fc3b0454a81"
+source = "git+https://github.com/nirusu99/apex-rs?branch=main#5a488ecc742f28b1a9c1cb3a3a46847a6977b6fa"
 dependencies = [
  "async-trait",
  "chrono",
@@ -63,6 +63,8 @@ dependencies = [
  "config",
  "image",
  "imageproc",
+ "rayon",
+ "reqwest",
  "rusttype",
  "tokio",
 ]
