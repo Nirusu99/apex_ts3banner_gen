@@ -47,17 +47,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let maps = apex.get_map_rotations().await?;
 
     let crafter = apex.get_crafter_rotations().await?;
-    let dailies = convert_to_images(&convert_to_url(&crafter.daily_bundles())).await?;
+    let daily = convert_to_images(&convert_to_url(&crafter.daily_bundles())).await?;
     let daily_duration = crafter
         .daily_bundles()
         .first()
         .map_or(Duration::zero(), |bundle| bundle.end_as_date() - now);
-    let weekly = convert_to_images(&convert_to_url(&crafter.weekly_bundles())).await?;
+    let mut weekly = convert_to_images(&convert_to_url(&crafter.weekly_bundles())).await?;
     let weekly_duration = crafter
         .weekly_bundles()
         .first()
         .map_or(Duration::zero(), |bundle| bundle.end_as_date() - now);
-    let perma = convert_to_images(&convert_to_url_with_filter(
+    let mut perma = convert_to_images(&convert_to_url_with_filter(
         &crafter.permanent_bundles(),
         |bundle: &Bundle| {
             bundle.bundle() != "ammo"
@@ -124,18 +124,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
     y += font_height as i32;
     // insert daily images
+    let mut images: Vec<_> = daily;
+    images.append(&mut weekly);
+    images.append(&mut perma);
     let mut x = 70;
-    for i in dailies {
-        overlay(&mut image, &i, x, y as i64);
-        x += 130;
-    }
-    // insert weekly images
-    for i in weekly {
-        overlay(&mut image, &i, x, y as i64);
-        x += 130;
-    }
-    // insert perma images
-    for i in perma {
+    for i in images {
         overlay(&mut image, &i, x, y as i64);
         x += 130;
     }
