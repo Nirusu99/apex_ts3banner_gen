@@ -20,6 +20,7 @@ const DEFAULT_IMAGE_NAME: &'static str = "out.png";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let now = Utc::now();
     // build config from config.toml
     let config = Config::builder()
         .add_source(config::File::with_name(CONFIG_NAME))
@@ -39,35 +40,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
     let root = std::env::current_dir()?;
     let apex = ApexClient::new(&apex_token);
-    let mut image = RgbaImage::new(1000, 630);
-    for x in 0..image.width() {
-        for y in 0..image.height() {
-            image.put_pixel(x, y, Rgba([10, 10, 10, 255]));
-        }
-    }
+    let mut image = RgbaImage::new(921, 236);
+    image
+        .enumerate_pixels_mut()
+        .for_each(|pixel| *pixel.2 = Rgba([10, 10, 10, 255]));
     let maps = apex.get_map_rotations().await?;
 
-    let now = Utc::now();
     let crafter = apex.get_crafter_rotations().await?;
-    let dailies = convert_to_images(&crafter.daily_bundles(), None).await?;
+    let dailies = convert_to_images(&convert_to_url(&crafter.daily_bundles())).await?;
     let daily_duration = crafter
         .daily_bundles()
         .first()
         .map_or(Duration::zero(), |bundle| bundle.end_as_date() - now);
-    let weekly = convert_to_images(&crafter.weekly_bundles(), None).await?;
+    let weekly = convert_to_images(&convert_to_url(&crafter.weekly_bundles())).await?;
     let weekly_duration = crafter
         .weekly_bundles()
         .first()
         .map_or(Duration::zero(), |bundle| bundle.end_as_date() - now);
-    let perma = convert_to_images(
+    let perma = convert_to_images(&convert_to_url_with_filter(
         &crafter.permanent_bundles(),
-        Some(|bundle: &Bundle| {
+        |bundle: &Bundle| {
             bundle.bundle() != "ammo"
                 && bundle.bundle() != "evo"
                 && bundle.bundle() != "health_pickup"
                 && bundle.bundle() != "shield_pickup"
-        }),
-    )
+        },
+    ))
     .await?;
     let current = maps.battle_royal().map_or(None, |rot| rot.current());
     let next = maps.battle_royal().map_or(None, |rot| rot.next());
@@ -98,12 +96,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     };
     let text = format!(
-        "Current Map: {}\nTime left:   {}\nNext Map:    {}",
+        "Current Map:    {}\nNext Map:       {}\nTime left:      {}",
         current.map_or(String::from("unknown"), |m| m.name()),
-        format_duration_hhmm(time_left),
         next.map_or(String::from("unknown"), |m| m.name()),
+        format_duration_hhmm(time_left),
     );
-    let mut y = 30;
+    let mut y = 10;
     for line in text.split('\n') {
         draw_text_mut(
             &mut image,
@@ -116,7 +114,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         );
         y += font_height as i32;
     }
-    y += font_height as i32;
     draw_text_mut(
         &mut image,
         Rgba([255u8, 255u8, 255u8, 255]),
@@ -124,16 +121,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         y,
         scale,
         &font,
-        &format!("Daily Crafter ({}):", format_duration_hhmm(daily_duration)),
+        &format!("Daily Crafter:  {}", format_duration_hhmm(daily_duration)),
     );
     y += font_height as i32;
-    // insert daily images
-    let mut x = 30;
-    for i in dailies {
-        overlay(&mut image, &i, x, y as i64);
-        x += 130;
-    }
-    y += font_height as i32 + 100;
     draw_text_mut(
         &mut image,
         Rgba([255u8, 255u8, 255u8, 255]),
@@ -142,30 +132,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         scale,
         &font,
         &format!(
-            "Weekly Crafter ({}):",
+            "Weekly Crafter: {}",
             format_duration_ddhhmm(weekly_duration)
         ),
     );
-    y += font_height as i32;
+    y += font_height as i32 * 2;
+    // insert daily images
+    let mut x = 70;
+    for i in dailies {
+        overlay(&mut image, &i, x, y as i64);
+        x += 130;
+    }
     // insert weekly images
-    let mut x = 30;
     for i in weekly {
         overlay(&mut image, &i, x, y as i64);
         x += 130;
     }
-    y += font_height as i32 + 100;
-    draw_text_mut(
-        &mut image,
-        Rgba([255u8, 255u8, 255u8, 255]),
-        30,
-        y,
-        scale,
-        &font,
-        "Permanent Crafter:",
-    );
-    y += font_height as i32;
     // insert perma images
-    let mut x = 30;
     for i in perma {
         overlay(&mut image, &i, x, y as i64);
         x += 130;
@@ -179,7 +162,7 @@ fn format_duration_hhmm(duration: chrono::Duration) -> String {
     // let seconds = time_left.num_seconds() % 60;
     let minutes = (duration.num_seconds() / 60) % 60;
     let hours = duration.num_seconds() / 3600;
-    format!("{:02}:{:02}", hours, minutes)
+    format!("{:02}h {:02}m", hours, minutes)
 }
 
 fn format_duration_ddhhmm(duration: chrono::Duration) -> String {
@@ -187,33 +170,60 @@ fn format_duration_ddhhmm(duration: chrono::Duration) -> String {
     let minutes = (duration.num_seconds() / 60) % 60;
     let hours = (duration.num_seconds() / 3600) % 24;
     let days = (duration.num_seconds() / 3600) / 24;
-    format!("{:02}:{:02}:{:02}", days, hours, minutes)
+    format!("{:02}d {:02}h {:02}m", days, hours, minutes)
 }
 
-async fn convert_to_images<F>(
-    v: &Vec<&Bundle>,
-    filter: Option<F>,
-) -> Result<Vec<ImageBuffer<Rgba<u8>, Vec<u8>>>, Box<dyn std::error::Error + Send + Sync>>
-where
-    F: Fn(&Bundle) -> bool,
-{
-    let mut root = std::env::current_dir()?;
-    let v: Vec<_> = v
-        .iter()
-        .filter(|item| filter.as_ref().map_or(true, |filter| filter(*item)))
-        .flat_map(|bundle| bundle.items())
-        .map(|item| item.item_type().asset_as_url())
-        .filter(|item| item.is_ok())
-        .map(|item| item.unwrap())
-        .collect();
+async fn convert_to_images(
+    v: &Vec<url::Url>,
+) -> Result<Vec<ImageBuffer<Rgba<u8>, Vec<u8>>>, Box<dyn std::error::Error + Send + Sync>> {
+    let mut cache = std::env::current_dir()?;
+    cache.push("cache");
+    std::fs::create_dir_all(&cache)?;
     let mut vec = Vec::new();
     for item in v {
-        let bytes = reqwest::get(item).await?.bytes().await?;
+        let file_name = item.path_segments().map(|segments| segments.last());
+        let bytes = match file_name {
+            Some(Some(file_name)) => {
+                cache.push(file_name);
+                if cache.exists() && cache.is_file() {
+                    let bytes = std::fs::read(&cache)?;
+                    cache.pop();
+                    bytes.into()
+                } else {
+                    let bytes = reqwest::get(item.as_str()).await?.bytes().await?;
+                    std::fs::write(&cache, &bytes)?;
+                    cache.pop();
+                    bytes
+                }
+            }
+            _ => reqwest::get(item.as_str()).await?.bytes().await?,
+        };
         vec.push(image::load_from_memory(&bytes)?);
     }
     let vec: Vec<ImageBuffer<Rgba<u8>, Vec<u8>>> = vec
         .par_iter()
-        .map(|i| resize(i, 100, 100, image::imageops::FilterType::Nearest))
+        .map(|i| resize(i, 100, 100, image::imageops::FilterType::Lanczos3))
         .collect();
     Ok(vec)
+}
+
+fn convert_to_url(v: &Vec<&Bundle>) -> Vec<url::Url> {
+    v.iter()
+        .flat_map(|bundle| bundle.items())
+        .map(|item| item.item_type().asset_as_url())
+        .filter(|item| item.is_ok())
+        .map(|item| item.unwrap())
+        .collect()
+}
+fn convert_to_url_with_filter<F>(v: &Vec<&Bundle>, f: F) -> Vec<url::Url>
+where
+    F: Fn(&Bundle) -> bool,
+{
+    v.iter()
+        .filter(|item| f(item))
+        .flat_map(|bundle| bundle.items())
+        .map(|item| item.item_type().asset_as_url())
+        .filter(|item| item.is_ok())
+        .map(|item| item.unwrap())
+        .collect()
 }
