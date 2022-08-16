@@ -8,7 +8,7 @@ use image::{
     imageops::{overlay, resize},
     ImageBuffer, Rgba, RgbaImage,
 };
-use imageproc::drawing::draw_text_mut;
+use imageproc::drawing::{draw_text_mut, text_size};
 use rusttype::{Font, Scale};
 const CONFIG_NAME: &'static str = "config";
 const APEX_TOKEN: &'static str = "apex_token";
@@ -95,48 +95,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             return Ok(());
         }
     };
-    let text = format!(
-        "Current Map:    {}\nNext Map:       {}\nTime left:      {}",
-        current.map_or(String::from("unknown"), |m| m.name()),
-        next.map_or(String::from("unknown"), |m| m.name()),
-        format_duration_hhmm(time_left),
-    );
+    let lines = [
+        (
+            "Current Map:",
+            &current.map_or(String::from("unknown"), |m| m.name()),
+        ),
+        (
+            "Next Map:",
+            &next.map_or(String::from("unknown"), |m| m.name()),
+        ),
+        ("Time left:", &format_duration_hhmm(time_left)),
+        ("Daily Crafter:", &format_duration_hhmm(daily_duration)),
+        ("Weekly Crafter:", &format_duration_ddhhmm(weekly_duration)),
+    ];
+    let max = lines
+        .iter()
+        .map(|(v, _)| v)
+        // we only need the width
+        .map(|s| text_size(scale, &font, s).0)
+        .max()
+        .unwrap_or(0);
+    let text_color = Rgba([255u8, 255u8, 255u8, 255]);
     let mut y = 10;
-    for line in text.split('\n') {
-        draw_text_mut(
-            &mut image,
-            Rgba([255u8, 255u8, 255u8, 255]),
-            30,
-            y,
-            scale,
-            &font,
-            &line,
-        );
+    for (title, value) in lines {
+        draw_text_mut(&mut image, text_color, 30, y, scale, &font, title);
+        draw_text_mut(&mut image, text_color, 60 + max, y, scale, &font, value);
         y += font_height as i32;
     }
-    draw_text_mut(
-        &mut image,
-        Rgba([255u8, 255u8, 255u8, 255]),
-        30,
-        y,
-        scale,
-        &font,
-        &format!("Daily Crafter:  {}", format_duration_hhmm(daily_duration)),
-    );
     y += font_height as i32;
-    draw_text_mut(
-        &mut image,
-        Rgba([255u8, 255u8, 255u8, 255]),
-        30,
-        y,
-        scale,
-        &font,
-        &format!(
-            "Weekly Crafter: {}",
-            format_duration_ddhhmm(weekly_duration)
-        ),
-    );
-    y += font_height as i32 * 2;
     // insert daily images
     let mut x = 70;
     for i in dailies {
