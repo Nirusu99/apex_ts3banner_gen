@@ -44,9 +44,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     image
         .enumerate_pixels_mut()
         .for_each(|pixel| *pixel.2 = Rgba([10, 10, 10, 255]));
-    let maps = apex.get_map_rotations().await?;
+    let maps = apex.battle_royal_rotation().await?;
 
-    let crafter = apex.get_crafter_rotations().await?;
+    let crafter = apex.crafter_rotations().await?;
     let daily = convert_to_images(&convert_to_url(&crafter.daily_bundles())).await?;
     let daily_duration = crafter
         .daily_bundles()
@@ -67,8 +67,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         },
     ))
     .await?;
-    let current = maps.battle_royal().map_or(None, |rot| rot.current());
-    let next = maps.battle_royal().map_or(None, |rot| rot.next());
+    let current = maps.current();
+    let next = maps.next();
 
     let time_left = match current {
         Some(c) => {
